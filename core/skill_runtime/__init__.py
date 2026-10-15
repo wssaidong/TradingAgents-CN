@@ -15,6 +15,7 @@ from .factor_catalog import (
     get_factor_pack,
     infer_recommended_factor_packs,
     list_factor_definitions,
+    list_factors_by_category,
     select_relevant_factor_definitions,
     validate_factor_catalog_schema_alignment,
     validate_factor_catalog_runtime_semantic_alignment,

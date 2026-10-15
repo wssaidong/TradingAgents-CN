@@ -1677,11 +1677,45 @@ adjustment_direction: 当intent=adjustment时，指出是放宽(loosen)还是收
             upsert=True,
         )
 
+    async def _run_aana_skill_screening(self, criteria: str, max_stocks: int) -> Dict[str, Any]:
+        """AAna Skill 后端：直接调用尾盘综合打分，跳过 LLM 三阶段流程。"""
+        from core.skills.aana_skills import screen
+
+        try:
+            items = await asyncio.to_thread(screen, top=max(1, int(max_stocks)))
+        except Exception as e:
+            logger.exception("[智能筛选] AAna Skill 后端调用失败")
+            raise RuntimeError(f"AAna Skill 后端不可用：{e}") from e
+
+        stocks = [
+            {
+                "code": str(item.get("code", "")),
+                "name": str(item.get("name", "")),
+                "price": item.get("price"),
+                "score": item.get("score"),
+                "pct_change": item.get("change_pct"),
+                "reason": str(item.get("reason", "")),
+            }
+            for item in (items or [])
+        ]
+        if not stocks:
+            return {
+                "reply": self._build_no_match_reply(criteria),
+                "stocks": [],
+                "phase": "result",
+                "is_fallback": False,
+            }
+
+        reply = self._build_locked_result_reply(len(stocks), stocks, "")
+        reply = reply.replace("已按批准的筛选方案执行完成。", "已通过 AAna Skill 后端完成尾盘综合打分。", 1)
+        return {"reply": reply, "stocks": stocks, "phase": "result", "is_fallback": False}
+
     async def run_direct_screening(
         self,
         user_id: str,
         criteria: str,
         max_stocks: int = 10,
+        aana_skill_backend: bool = False,
     ) -> Dict[str, Any]:
         """
         直接执行选股（单轮，不经过确认/规划阶段）。
@@ -1691,10 +1725,14 @@ adjustment_direction: 当intent=adjustment时，指出是放宽(loosen)还是收
             user_id: 用户 ID（用于 LLM 配额等）
             criteria: 筛选条件（自然语言），如 "PE小于20的科技股"
             max_stocks: 最多返回股票数量，默认 10
+            aana_skill_backend: True 时改用 AAna Skill 后端（尾盘综合打分 Top N），
+                不走 LLM 规划链路；AAna 上游不可用时抛 RuntimeError
 
         Returns:
             {"reply": str, "stocks": list, "phase": "result"}
         """
+        if aana_skill_backend:
+            return await self._run_aana_skill_screening(criteria, max_stocks)
         if not await self._ensure_client():
             return {
                 "reply": "智能筛选暂时不可用，请检查 LLM 配置。",

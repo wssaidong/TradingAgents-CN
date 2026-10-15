@@ -774,6 +774,52 @@ COMMON_FACTOR_CATALOG: Dict[str, FactorDefinition] = {
         formula="MACD(close).hist",
         warnings=["至少 26 个交易日历史行情。"],
     ),
+    "macd_golden_cross": FactorDefinition(
+        factor_id="macd_golden_cross",
+        display_name="MACD 金叉",
+        category="technical",
+        description="DIF 真正上穿 DEA 的金叉信号（非 DIF 穿 0），AAna 90 天回测 33 笔胜率 47.2%。",
+        implementation_level="ready",
+        primary_sources=["stock_daily_quotes"],
+        helper_functions=["get_stock_daily_quotes", "compute_many", "core.skills.aana_skills.screen"],
+        required_fields=["close"],
+        formula="lookback 窗口内 crossover(DIF, DEA)",
+        warnings=["至少 26 个交易日历史行情。"],
+    ),
+    "rsi_extreme": FactorDefinition(
+        factor_id="rsi_extreme",
+        display_name="RSI 极端值过滤",
+        category="technical",
+        description="RSI(14) > 70 视为超买、< 30 视为超卖，选股时默认用 65-75 阈值过滤追高候选。",
+        implementation_level="ready",
+        primary_sources=["stock_daily_quotes"],
+        helper_functions=["get_stock_daily_quotes", "compute_many", "core.skills.aana_skills.screen"],
+        required_fields=["close"],
+        formula="RSI(close, 14) 超买/超卖阈值判定",
+        warnings=["至少 15 个交易日历史行情。"],
+    ),
+    "main_net_ratio": FactorDefinition(
+        factor_id="main_net_ratio",
+        display_name="主力净流入占比",
+        category="trading",
+        description="主力净流入金额占成交额比例，> 5% 视为强势资金介入（AAna 评分权重 15 分）。",
+        implementation_level="ready",
+        primary_sources=["aana_skills"],
+        helper_functions=["core.skills.aana_skills.screen"],
+        required_fields=["main_net_ratio"],
+        fallback_rules=["本地库缺失时经 AAna 上游从腾讯实时行情获取"],
+    ),
+    "limit_up_touch": FactorDefinition(
+        factor_id="limit_up_touch",
+        display_name="触及涨跌停检测",
+        category="trading",
+        description="实时判断个股是否触及涨停/跌停（±0.1% 误差容忍）。",
+        implementation_level="ready",
+        primary_sources=["aana_skills"],
+        helper_functions=["core.skills.aana_skills.monitor"],
+        required_fields=["change_pct", "price"],
+        fallback_rules=["本地库缺失时经 AAna 上游 intraday_agent.real_time_monitor() 获取"],
+    ),
 }
 
 
@@ -791,17 +837,21 @@ RECOMMENDED_FACTOR_PACKS: Dict[str, List[str]] = {
         "ma20",
         "ma60",
         "rsi14",
+        "rsi_extreme",
         "kdj_k",
         "kdj_d",
         "kdj_j",
         "dif",
         "dea",
         "macd_hist",
+        "macd_golden_cross",
     ],
     "liquidity_core": [
         "pct_chg",
         "turnover_rate",
         "volume_ratio",
+        "main_net_ratio",
+        "limit_up_touch",
     ],
 }
 
@@ -1022,6 +1072,20 @@ def list_factor_definitions(category: Optional[FactorCategory] = None) -> List[D
     if category:
         items = [item for item in items if item.category == category]
     return [item.to_dict() for item in sorted(items, key=lambda item: (item.category, item.factor_id))]
+
+
+def list_factors_by_category(category: str) -> List[Dict[str, object]]:
+    """按因子类别列出已登记因子定义（list_factor_definitions 的类别入口）。
+
+    Args:
+        category: 因子类别，如 "technical" / "trading" / "valuation"
+
+    Returns:
+        list[dict]: 该类别下所有已登记因子的 to_dict() 结果，按 factor_id 升序；
+            类别未登记时返回空列表
+    """
+    normalized = str(category or "").strip() or None
+    return list_factor_definitions(category=normalized)
 
 
 def get_factor_pack(pack_id: str) -> List[Dict[str, object]]:
@@ -1896,4 +1960,5 @@ __all__ = [
     "get_factor_definition",
     "get_factor_pack",
     "list_factor_definitions",
+    "list_factors_by_category",
 ]
